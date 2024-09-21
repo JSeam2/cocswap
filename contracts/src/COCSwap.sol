@@ -1,5 +1,13 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: AGPL-3.0
 pragma solidity ^0.8.26;
+
+error Initialized();
+error NotInitialized();
+error VerificationFailed();
+error InvalidShares();
+error InvalidReserve0();
+error InvalidReserve1();
+error InvalidAmounts();
 
 contract COCSwap {
     IERC20 public immutable token0;
@@ -15,7 +23,7 @@ contract COCSwap {
     constructor(address _token0, address _token1, address _verifier) {
         token0 = IERC20(_token0);
         token1 = IERC20(_token1);
-        veriifer = Halo2Veriifer(-verifier);
+        verifier = Halo2Veriifer(_verifier);
     }
 
     function _mint(address _to, uint256 _amount) private {
@@ -33,193 +41,191 @@ contract COCSwap {
         reserve1 = _reserve1;
     }
 
-    function swap(address _tokenIn, uint256 _amountIn)
+    function swap(
+        address tokenIn,
+        uint256 amountIn,
+        bytes calldata proof,
+        uint256[] calldata instances
+    )
         external
         returns (uint256 amountOut)
     {
         require(
-            _tokenIn == address(token0) || _tokenIn == address(token1),
-            "invalid token"
+            tokenIn == address(token0) || tokenIn == address(token1),
+            "Invalid token"
         );
-        require(_amountIn > 0, "amount in = 0");
+        require(amountIn > 0, "Amount in = 0");
 
-        bool isToken0 = _tokenIn == address(token0);
-        (IERC20 tokenIn, IERC20 tokenOut, uint256 reserveIn, uint256 reserveOut)
-        = isToken0
-            ? (token0, token1, reserve0, reserve1)
-            : (token1, token0, reserve1, reserve0);
+        bool isToken0 = tokenIn == address(token0);
+        (IERC20 tokenInContract, IERC20 tokenOutContract) =
+            isToken0
+                ? (token0, token1)
+                : (token1, token0);
 
-        tokenIn.transferFrom(msg.sender, address(this), _amountIn);
+        // omitted declaration cuz of stack too deep error
+        // uint256 a0 = instances[0];
+        // uint256 b0 = instances[1];
+        // We don't need these value
+        // uint256 delta_a = instances[2];
+        // uint256 delta_b = instances[3];
+        // uint256 c = instances[4];
+        uint256 new_a = instances[5];
+        uint256 new_b = instances[6];
 
-        /*
-        How much dy for dx?
+        if (instances[0] != reserve0) {
+            revert InvalidReserve0();
+        }
 
-        xy = k
-        (x + dx)(y - dy) = k
-        y - dy = k / (x + dx)
-        y - k / (x + dx) = dy
-        y - xy / (x + dx) = dy
-        (yx + ydx - xy) / (x + dx) = dy
-        ydx / (x + dx) = dy
-        */
-        // 0.3% fee
-        uint256 amountInWithFee = (_amountIn * 997) / 1000;
-        amountOut =
-            (reserveOut * amountInWithFee) / (reserveIn + amountInWithFee);
+        if (instances[1] != reserve1) {
+            revert InvalidReserve1();
+        }
 
-        tokenOut.transfer(msg.sender, amountOut);
+        if (verifier.verifyProof(proof, instances)) {
+            // Calculate amountOut based on the new state
+            amountOut = isToken0 ? (instances[1] - new_b) : (instances[0] - new_a);
 
-        _update(
-            token0.balanceOf(address(this)), token1.balanceOf(address(this))
-        );
+            // Transfer tokens
+            tokenInContract.transferFrom(msg.sender, address(this), amountIn);
+            tokenOutContract.transfer(msg.sender, amountOut);
+
+            // Update reserves
+             _update(
+                token0.balanceOf(address(this)), token1.balanceOf(address(this))
+            );
+        } else {
+            revert VerificationFailed();
+        }
+
+        require(amountOut > 0, "Insufficient output amount");
     }
 
-    function addLiquidity(uint256 _amount0, uint256 _amount1)
+    function addLiquidityInit(uint256 _amount0, uint256 _amount1) external returns (uint256 shares) {
+        if (totalSupply == 0) {
+            // initialization
+
+            // TODO: we assume constant product in this case for the purpose of the hackathon
+            // This can also be generalized
+            token0.transferFrom(msg.sender, address(this), _amount0);
+            token1.transferFrom(msg.sender, address(this), _amount1);
+
+            shares = _sqrt(_amount0 * _amount1);
+
+            _mint(msg.sender, shares);
+
+            _update(
+                token0.balanceOf(address(this)), token1.balanceOf(address(this))
+            );
+        } else {
+            revert Initialized();
+        }
+
+    }
+
+    function addLiquidity(
+        uint256 _amount0,
+        uint256 _amount1,
+        bytes calldata proof,
+        uint256[] calldata instances
+    )
         external
         returns (uint256 shares)
     {
         token0.transferFrom(msg.sender, address(this), _amount0);
         token1.transferFrom(msg.sender, address(this), _amount1);
 
-        /*
-        How much dx, dy to add?
+        uint256 a0 = instances[0];
+        uint256 b0 = instances[1];
+        // We don't need these values for now
+        // uint256 delta_a = instances[2];
+        // uint256 delta_b = instances[3];
+        // uint256 c = instances[4];
+        uint256 new_a = instances[5];
+        uint256 new_b = instances[6];
 
-        xy = k
-        (x + dx)(y + dy) = k'
-
-        No price change, before and after adding liquidity
-        x / y = (x + dx) / (y + dy)
-
-        x(y + dy) = y(x + dx)
-        x * dy = y * dx
-
-        x / y = dx / dy
-        dy = y / x * dx
-        */
-        if (reserve0 > 0 || reserve1 > 0) {
-            require(
-                reserve0 * _amount1 == reserve1 * _amount0, "x / y != dx / dy"
-            );
+        if (a0 != reserve0) {
+            revert InvalidReserve0();
         }
 
-        /*
-        How much shares to mint?
+        if (b0 != reserve1) {
+            revert InvalidReserve1();
+        }
 
-        f(x, y) = value of liquidity
-        We will define f(x, y) = sqrt(xy)
+        if (totalSupply > 0) {
+            // after initialization
 
-        L0 = f(x, y)
-        L1 = f(x + dx, y + dy)
-        T = total shares
-        s = shares to mint
-
-        Total shares should increase proportional to increase in liquidity
-        L1 / L0 = (T + s) / T
-
-        L1 * T = L0 * (T + s)
-
-        (L1 - L0) * T / L0 = s 
-        */
-
-        /*
-        Claim
-        (L1 - L0) / L0 = dx / x = dy / y
-
-        Proof
-        --- Equation 1 ---
-        (L1 - L0) / L0 = (sqrt((x + dx)(y + dy)) - sqrt(xy)) / sqrt(xy)
-        
-        dx / dy = x / y so replace dy = dx * y / x
-
-        --- Equation 2 ---
-        Equation 1 = (sqrt(xy + 2ydx + dx^2 * y / x) - sqrt(xy)) / sqrt(xy)
-
-        Multiply by sqrt(x) / sqrt(x)
-        Equation 2 = (sqrt(x^2y + 2xydx + dx^2 * y) - sqrt(x^2y)) / sqrt(x^2y)
-                   = (sqrt(y)(sqrt(x^2 + 2xdx + dx^2) - sqrt(x^2)) / (sqrt(y)sqrt(x^2))
-        
-        sqrt(y) on top and bottom cancels out
-
-        --- Equation 3 ---
-        Equation 2 = (sqrt(x^2 + 2xdx + dx^2) - sqrt(x^2)) / (sqrt(x^2)
-        = (sqrt((x + dx)^2) - sqrt(x^2)) / sqrt(x^2)  
-        = ((x + dx) - x) / x
-        = dx / x
-
-        Since dx / dy = x / y,
-        dx / x = dy / y
-
-        Finally
-        (L1 - L0) / L0 = dx / x = dy / y
-        */
-        if (totalSupply == 0) {
-            shares = _sqrt(_amount0 * _amount1);
+            // TODO: Generalize this further, these values can be provided via instances
+            if (verifier.verifyProof(proof, instances)) {
+                shares = _min(
+                    (new_a * totalSupply) / reserve0,
+                    (new_b * totalSupply) / reserve1
+                );
+            } else {
+                revert VerificationFailed();
+            }
         } else {
-            shares = _min(
-                (_amount0 * totalSupply) / reserve0,
-                (_amount1 * totalSupply) / reserve1
-            );
+            revert NotInitialized();
         }
-        require(shares > 0, "shares = 0");
-        _mint(msg.sender, shares);
+
+        if (shares > 0) {
+            _mint(msg.sender, shares);
+        } else {
+            revert InvalidShares();
+        }
 
         _update(
             token0.balanceOf(address(this)), token1.balanceOf(address(this))
         );
     }
 
-    function removeLiquidity(uint256 _shares)
+    function removeLiquidity(
+        uint256 _shares,
+        bytes calldata proof,
+        uint256[] calldata instances
+    )
         external
         returns (uint256 amount0, uint256 amount1)
     {
-        /*
-        Claim
-        dx, dy = amount of liquidity to remove
-        dx = s / T * x
-        dy = s / T * y
+        require(_shares > 0, "Invalid shares amount");
 
-        Proof
-        Let's find dx, dy such that
-        v / L = s / T
-        
-        where
-        v = f(dx, dy) = sqrt(dxdy)
-        L = total liquidity = sqrt(xy)
-        s = shares
-        T = total supply
+        uint256 a0 = instances[0];
+        uint256 b0 = instances[1];
+        uint256 delta_a = instances[2];
+        uint256 delta_b = instances[3];
+        // We don't need these values for now
+        // uint256 c = instances[4];
+        uint256 new_a = instances[5];
+        uint256 new_b = instances[6];
 
-        --- Equation 1 ---
-        v = s / T * L
-        sqrt(dxdy) = s / T * sqrt(xy)
+        if (a0 != reserve0) {
+            revert InvalidReserve0();
+        }
 
-        Amount of liquidity to remove must not change price so 
-        dx / dy = x / y
+        if (b0 != reserve1) {
+            revert InvalidReserve1();
+        }
 
-        replace dy = dx * y / x
-        sqrt(dxdy) = sqrt(dx * dx * y / x) = dx * sqrt(y / x)
+        if (verifier.verifyProof(proof, instances)) {
+            // Calculate the amounts to return based on the new state
+            amount0 = (delta_a * _shares) / totalSupply;
+            amount1 = (delta_b * _shares) / totalSupply;
 
-        Divide both sides of Equation 1 with sqrt(y / x)
-        dx = s / T * sqrt(xy) / sqrt(y / x)
-           = s / T * sqrt(x^2) = s / T * x
+            // Burn the shares
+            _burn(msg.sender, _shares);
 
-        Likewise
-        dy = s / T * y
-        */
+            // Transfer tokens to the user
+            token0.transfer(msg.sender, amount0);
+            token1.transfer(msg.sender, amount1);
 
-        // bal0 >= reserve0
-        // bal1 >= reserve1
-        uint256 bal0 = token0.balanceOf(address(this));
-        uint256 bal1 = token1.balanceOf(address(this));
+            // Update the reserves
+            _update(new_a, new_b);
+        } else {
+            revert VerificationFailed();
+        }
 
-        amount0 = (_shares * bal0) / totalSupply;
-        amount1 = (_shares * bal1) / totalSupply;
-        require(amount0 > 0 && amount1 > 0, "amount0 or amount1 = 0");
+        if (amount0 == 0 && amount1 == 0) {
+            revert InvalidAmounts();
+        }
 
-        _burn(msg.sender, _shares);
-        _update(bal0 - amount0, bal1 - amount1);
-
-        token0.transfer(msg.sender, amount0);
-        token1.transfer(msg.sender, amount1);
     }
 
     function _sqrt(uint256 y) private pure returns (uint256 z) {

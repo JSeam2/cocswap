@@ -12,7 +12,7 @@ error InvalidAmounts();
 contract COCSwap {
     IERC20 public immutable token0;
     IERC20 public immutable token1;
-    Halo2Veriifer public immutable verifier;
+    Halo2Verifier public immutable verifier;
 
     uint256 public reserve0;
     uint256 public reserve1;
@@ -23,7 +23,7 @@ contract COCSwap {
     constructor(address _token0, address _token1, address _verifier) {
         token0 = IERC20(_token0);
         token1 = IERC20(_token1);
-        verifier = Halo2Veriifer(_verifier);
+        verifier = Halo2Verifier(_verifier);
     }
 
     function _mint(address _to, uint256 _amount) private {
@@ -262,6 +262,6 @@ interface IERC20 {
         returns (bool);
 }
 
-interface Halo2Veriifer {
+interface Halo2Verifier {
     function verifyProof(bytes calldata proof, uint256[] calldata instances) external returns (bool);
 }

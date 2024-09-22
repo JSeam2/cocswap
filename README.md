@@ -20,8 +20,17 @@ TestHalo2Verifier: 0x41feA079bae6342B6b2748cd624bA1dcf35DfC17
 COCSwap: 0x75B1978211D0fd9783f70c8c539F2626D5B4dB3C
 ```
 
-## Linea TODO
+## Linea
+```
+Halo2Verifier: 0x7a70255120BEA69D785e0663c67C6AdC46ff6526
+```
 
-## Hedera TODO
+## Hedera
+```
+Halo2Verifier: 0x2835Bf933D8E7A8A92B6A09Fd94846671C2599E4
+```
 
-## Morph TODO
+## Morph (Holesky)
+```
+Halo2Verifier: 0x4FC1AbE53c79B631C519d455CfCB4dba3AaBfF95
+```

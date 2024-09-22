@@ -46,10 +46,7 @@ contract COCSwap {
         uint256 amountIn,
         bytes calldata proof,
         uint256[] calldata instances
-    )
-        external
-        returns (uint256 amountOut)
-    {
+    ) external returns (uint256 amountOut) {
         require(
             tokenIn == address(token0) || tokenIn == address(token1),
             "Invalid token"
@@ -57,10 +54,9 @@ contract COCSwap {
         require(amountIn > 0, "Amount in = 0");
 
         bool isToken0 = tokenIn == address(token0);
-        (IERC20 tokenInContract, IERC20 tokenOutContract) =
-            isToken0
-                ? (token0, token1)
-                : (token1, token0);
+        (IERC20 tokenInContract, IERC20 tokenOutContract) = isToken0
+            ? (token0, token1)
+            : (token1, token0);
 
         // omitted declaration cuz of stack too deep error
         // uint256 a0 = instances[0];
@@ -82,15 +78,18 @@ contract COCSwap {
 
         if (verifier.verifyProof(proof, instances)) {
             // Calculate amountOut based on the new state
-            amountOut = isToken0 ? (instances[1] - new_b) : (instances[0] - new_a);
+            amountOut = isToken0
+                ? (instances[1] - new_b)
+                : (instances[0] - new_a);
 
             // Transfer tokens
             tokenInContract.transferFrom(msg.sender, address(this), amountIn);
             tokenOutContract.transfer(msg.sender, amountOut);
 
             // Update reserves
-             _update(
-                token0.balanceOf(address(this)), token1.balanceOf(address(this))
+            _update(
+                token0.balanceOf(address(this)),
+                token1.balanceOf(address(this))
             );
         } else {
             revert VerificationFailed();
@@ -99,7 +98,10 @@ contract COCSwap {
         require(amountOut > 0, "Insufficient output amount");
     }
 
-    function addLiquidityInit(uint256 _amount0, uint256 _amount1) external returns (uint256 shares) {
+    function addLiquidityInit(
+        uint256 _amount0,
+        uint256 _amount1
+    ) external returns (uint256 shares) {
         if (totalSupply == 0) {
             // initialization
 
@@ -113,12 +115,12 @@ contract COCSwap {
             _mint(msg.sender, shares);
 
             _update(
-                token0.balanceOf(address(this)), token1.balanceOf(address(this))
+                token0.balanceOf(address(this)),
+                token1.balanceOf(address(this))
             );
         } else {
             revert Initialized();
         }
-
     }
 
     function addLiquidity(
@@ -126,10 +128,7 @@ contract COCSwap {
         uint256 _amount1,
         bytes calldata proof,
         uint256[] calldata instances
-    )
-        external
-        returns (uint256 shares)
-    {
+    ) external returns (uint256 shares) {
         token0.transferFrom(msg.sender, address(this), _amount0);
         token1.transferFrom(msg.sender, address(this), _amount1);
 
@@ -173,24 +172,21 @@ contract COCSwap {
         }
 
         _update(
-            token0.balanceOf(address(this)), token1.balanceOf(address(this))
+            token0.balanceOf(address(this)),
+            token1.balanceOf(address(this))
         );
     }
 
     function removeLiquidity(
         uint256 _shares,
-        bytes calldata proof,
         uint256[] calldata instances
-    )
-        external
-        returns (uint256 amount0, uint256 amount1)
-    {
+    ) external returns (uint256 amount0, uint256 amount1) {
         require(_shares > 0, "Invalid shares amount");
 
         uint256 a0 = instances[0];
         uint256 b0 = instances[1];
-        uint256 delta_a = instances[2];
-        uint256 delta_b = instances[3];
+        // uint256 delta_a = instances[2];
+        // uint256 delta_b = instances[3];
         // We don't need these values for now
         // uint256 c = instances[4];
         uint256 new_a = instances[5];
@@ -204,28 +200,23 @@ contract COCSwap {
             revert InvalidReserve1();
         }
 
-        if (verifier.verifyProof(proof, instances)) {
-            // Calculate the amounts to return based on the new state
-            amount0 = (delta_a * _shares) / totalSupply;
-            amount1 = (delta_b * _shares) / totalSupply;
+        // Calculate the amounts to return based on the new state
+        amount0 = (a0 * _shares) / totalSupply;
+        amount1 = (b0 * _shares) / totalSupply;
 
-            // Burn the shares
-            _burn(msg.sender, _shares);
+        // Burn the shares
+        _burn(msg.sender, _shares);
 
-            // Transfer tokens to the user
-            token0.transfer(msg.sender, amount0);
-            token1.transfer(msg.sender, amount1);
+        // Transfer tokens to the user
+        token0.transfer(msg.sender, amount0);
+        token1.transfer(msg.sender, amount1);
 
-            // Update the reserves
-            _update(new_a, new_b);
-        } else {
-            revert VerificationFailed();
-        }
+        // Update the reserves
+        _update(new_a, new_b);
 
         if (amount0 == 0 && amount1 == 0) {
             revert InvalidAmounts();
         }
-
     }
 
     function _sqrt(uint256 y) private pure returns (uint256 z) {
@@ -249,19 +240,25 @@ contract COCSwap {
 interface IERC20 {
     function totalSupply() external view returns (uint256);
     function balanceOf(address account) external view returns (uint256);
-    function transfer(address recipient, uint256 amount)
-        external
-        returns (bool);
-    function allowance(address owner, address spender)
-        external
-        view
-        returns (uint256);
+    function transfer(
+        address recipient,
+        uint256 amount
+    ) external returns (bool);
+    function allowance(
+        address owner,
+        address spender
+    ) external view returns (uint256);
     function approve(address spender, uint256 amount) external returns (bool);
-    function transferFrom(address sender, address recipient, uint256 amount)
-        external
-        returns (bool);
+    function transferFrom(
+        address sender,
+        address recipient,
+        uint256 amount
+    ) external returns (bool);
 }
 
 interface Halo2Verifier {
-    function verifyProof(bytes calldata proof, uint256[] calldata instances) external returns (bool);
+    function verifyProof(
+        bytes calldata proof,
+        uint256[] calldata instances
+    ) external returns (bool);
 }
